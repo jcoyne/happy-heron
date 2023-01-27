@@ -28,6 +28,7 @@ class GlobusSetupJob < ApplicationJob
   private
 
   def globus_user_exists?(user_id)
+    return true if Settings.globus.integration_mode
     return Settings.globus.test_user_exists if fake_globus_calls?
 
     GlobusClient.user_exists?(user_id)
@@ -36,17 +37,32 @@ class GlobusSetupJob < ApplicationJob
   def create_globus_endpoint(work_version)
     user = work_version.work.owner
     # e.g. 'mjgiarlo/work1234/version1'
-    endpoint_path = format(WorkVersion::GLOBUS_ENDPOINT_TEMPLATE,
-                           user_id: user.sunetid,
-                           work_id: work_version.work.id,
-                           work_version: work_version.version)
+    endpoint_path = endpoint_path_for(work_version, user)
 
     # if simulated globus calls, return success, else make globus client call
-    success = fake_globus_calls? ? true : GlobusClient.mkdir(user_id: user.email, path: endpoint_path)
+    success = make_dir(user, endpoint_path)
 
     raise "Error creating globus endpoint for work ID #{work.id}" unless success
 
     work_version.update(globus_endpoint: endpoint_path)
+  end
+
+  def endpoint_path_for(work_version, user)
+    if work_version.title.ends_with?('Integration Test') && Settings.globus.integration_mode
+      return Settings.globus.integration_endpoint
+    end
+
+    format(WorkVersion::GLOBUS_ENDPOINT_TEMPLATE,
+           user_id: user.sunetid,
+           work_id: work_version.work.id,
+           work_version: work_version.version)
+  end
+
+  def make_dir(user, path)
+    return true if fake_globus_calls?
+    return true if Settings.globus.integration_mode
+
+    GlobusClient.mkdir(user_id: user.email, path:)
   end
 
   # simulate globus calls in development if settings indicate we should for testing
